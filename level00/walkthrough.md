@@ -1,0 +1,44 @@
+RELRO             STACK CANARY          NX              PIE             RPATH        RUNPATH         FILE
+Partial RELRO 🟡   No canary found 🔴   NX enabled 🟢    No PIE 🔴       No RPATH 🟢   No RUNPATH 🟢   /home/users/level00/level00
+
+--------
+
+-------- Ghidra --------
+
+bool main(void)
+
+{
+  int local_14 [4];
+  
+  puts("***********************************");
+  puts("* \t     -Level00 -\t\t  *");
+  puts("***********************************");
+  printf("Password:");
+  __isoc99_scanf(&DAT_08048636,local_14);
+  if (local_14[0] != 0x149c) {
+    puts("\nInvalid Password!");
+  }
+  else {
+    puts("\nAuthenticated!");
+    system("/bin/sh");
+  }
+  return local_14[0] != 0x149c;
+}
+
+---------- Translate 0x149c to decimal => 5276 !!!
+
+
+---------- answer ----
+
+level00@OverRide:~$ ./level00
+***********************************
+*            -Level00 -           *
+***********************************
+Password:5276
+
+Authenticated!
+$ whoami
+level01
+$ cat ../level01/.pass
+uSq2ehEGT6c9S24zbshexZQBXUGrncxn5sD5QfGL
+$ 
