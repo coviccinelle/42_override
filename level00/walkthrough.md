@@ -27,6 +27,14 @@ bool main(void)
 
 ---------- Translate 0x149c to decimal => 5276 !!!
 
+Tại sao Ghidra hiển thị local_14[4] mà scanf lại dùng &DAT_08048636?
+Nếu bạn click đúp vào DAT_08048636 trong Ghidra, bạn sẽ thấy nó là chuỗi định dạng "%d".
+
+scanf("%d", local_14) nghĩa là nó đọc một số nguyên và lưu vào phần tử đầu tiên của mảng.
+
+Lệnh if (local_14[0] != 0x149c) kiểm tra chính xác số nguyên đó.
+
+Lưu ý nhỏ: Ở các level sau, khi No canary found đi kèm với một hàm gets() hoặc scanf("%s") (không giới hạn độ dài), đó mới là lúc bạn dùng đến kỹ thuật ghi đè địa chỉ trả về (EIP/RIP). Còn ở Level00, tác giả chỉ muốn bạn học cách đọc hiểu mã giả và chuyển đổi cơ số thôi!
 
 ---------- answer ----
 
