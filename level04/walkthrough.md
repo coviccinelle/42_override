@@ -85,3 +85,21 @@ Chúng ta cần dàn dựng Stack của tiến trình con sao cho khi nó kết 
 * **Cơ chế giám sát (Introspection)**: `ptrace` là một công cụ mạnh mẽ để bảo vệ chương trình, nhưng nếu chỉ giám sát bề nổi mà không giám sát đệ quy, nó vẫn có thể bị bypass.
 * **Sức mạnh của Thư viện**: Kỹ thuật `ret2libc` chứng minh rằng đôi khi "vũ khí" tốt nhất để tấn công một hệ thống chính là những công cụ nằm sẵn trong chính hệ thống đó.
 * **Lỗ hổng logic**: Việc hiểu rõ mối quan hệ Cha-Con-Cháu trong Linux là chìa khóa để tìm ra lỗ hổng trong cơ chế bảo vệ của tác giả.
+
+
+------ why +9999999999 -------
+
+
+Người ta dùng `+9999999` như một lối tắt (hacky way) vì:
+
+1. **Kích thước của `libc`:** Thư viện `libc` thường có kích thước từ 1.5MB đến 2MB trong bộ nhớ.
+2. **Bao phủ toàn bộ:** Khi ta bắt đầu từ `&system` (một vị trí ở giữa `libc`) và bảo nó quét tới 10MB phía trước, ta đã **chắc chắn 100% bao phủ toàn bộ phần còn lại của thư viện `libc**`.
+3. **Tự động dừng an toàn:** GDB rất thông minh. Khi nó quét hết vùng nhớ hợp lệ của `libc` và đụng tới những vùng nhớ chưa được phân bổ (unmapped memory), nó sẽ tự động dừng lại và báo lỗi nhẹ:
+`warning: Unable to access target memory at 0xf7fd3b74, halting search.`
+(Giống hệt lỗi bạn đã thấy!). Mặc dù nó báo lỗi, nhưng nó **đã tìm thấy** chuỗi `"/bin/sh"` nằm trước ranh giới lỗi đó rồi.
+
+---
+
+### Tóm lại:
+
+Thay vì phải tra cứu xem thư viện `libc` lớn bao nhiêu để ghi đúng con số, các hacker dùng một con số cực lớn (`+9999999` hoặc `+100000000`) để buộc GDB "quét hết sức có thể cho đến khi nào đụng tường thì thôi".
