@@ -4,102 +4,115 @@ Partial RELRO 🟡     Canary found 🟢     NX disabled 🔴      No PIE 🔴  
 ------------------ 
 ---
 
-# 📒 NHẬT KÝ KHAI THÁC: LEVEL 07 @ OVERRIDE
+# 📒 EXPLOITATION LOG: LEVEL 07 @ OVERRIDE
 
-## 1. Dấu hiệu và Lỗ hổng (The Vulnerability)
+## 1. Signature and Vulnerability
 
-Chương trình cung cấp một dịch vụ lưu trữ số đơn giản. Tuy nhiên, qua dịch ngược mã nguồn, chúng ta phát hiện lỗ hổng **Out-of-Bounds (OOB) Write** tại hàm `store_number`.
+The program offers a simple number-storage service. Reverse engineering it
+reveals an **Out-of-Bounds (OOB) Write** in `store_number`.
 
-* **Lỗi logic:** Chương trình nhận một `Index` từ người dùng nhưng không kiểm tra giới hạn trên (Upper bound). Nó tin tưởng hoàn toàn vào con số bạn nhập vào để tính toán địa chỉ ghi dữ liệu:
-`*(uint *)(uVar2 * 4 + param_1) = uVar1;`
-* **Rào cản (Sandbox):** Tác giả đã cài cắm hai "chốt chặn":
-1. `index % 3 == 0`: Không cho phép ghi vào các index chia hết cho 3.
-2. `number >> 24 == 0xb7`: Không cho phép nạp các số bắt đầu bằng byte `0xb7` (nhằm chặn các địa chỉ thư viện `libc` trên một số hệ thống).
-
-
+* **Logic bug:** The program takes an `Index` from the user but never checks the
+  upper bound. It trusts your number completely to compute the write address:
+  `*(uint *)(uVar2 * 4 + param_1) = uVar1;`
+* **The sandbox:** The author planted two guards:
+1. `index % 3 == 0`: Writes to indices divisible by 3 are rejected.
+2. `number >> 24 == 0xb7`: Numbers whose top byte is `0xb7` are rejected (to
+   block `libc` addresses on some systems).
 
 ---
 
-## 2. Giải mã cấu trúc Stack (Stack Forensics)
+## 2. Stack Forensics
 
-Để điều khiển chương trình, chúng ta cần tìm **Saved EIP** (địa chỉ trả về) của hàm `main`. Đây là "vô lăng" điều hướng CPU.
+To steer the program we need `main`'s **saved EIP** (the return address). That is
+the CPU's "steering wheel."
 
-Dựa trên dữ liệu thực tế từ GDB của bạn:
+From live GDB data:
 
-* **Địa chỉ Saved EIP:** `0xffffd30c`
-* **Địa chỉ bắt đầu mảng (Index 1):** `0xffffd148` $\rightarrow$ **Index 0** nằm tại `0xffffd144`.
+* **Saved EIP address:** `0xffffd30c`
+* **Array start address (index 1):** `0xffffd148` → **index 0** is at `0xffffd144`.
 
-**Phép toán xác định mục tiêu:**
-Sử dụng LaTeX để tính toán khoảng cách:
+**Locating the target:**
 
+$$Distance = EIP\_addr - Array\_start = 0xffffd30c - 0xffffd144 = 0x1c8$$
 
-$$Distance = EIP\_address - Array\_start\_address = 0xffffd30c - 0xffffd144 = 0x1c8$$
-
-$$0x1c8 \text{ (Hex)} = 456 \text{ (Bytes)}$$
+$$0x1c8 \text{ (hex)} = 456 \text{ bytes}$$
 
 $$\text{Target Index} = \frac{456}{4} = \mathbf{114}$$
 
 ---
 
-## 3. Kỹ thuật "Vượt rào" bằng Integer Overflow
+## 3. Bypassing the guard with Integer Overflow
 
-Mục tiêu của chúng ta là ghi vào **Index 114**, nhưng $114 \pmod 3 = 0$ nên bị hệ thống chặn.
+We want to write to **index 114**, but $114 \bmod 3 = 0$ so it's blocked.
 
-**Mẹo Hacker:** Chúng ta lợi dụng việc máy tính sử dụng số nguyên 32-bit không dấu. Khi một số vượt quá giới hạn $2^{32}$, nó sẽ "quay vòng" (wrap around) về 0.
+**The trick:** exploit unsigned 32-bit integer arithmetic. When a value exceeds
+$2^{32}$, it "wraps around" back to 0.
 
-Để tìm một Index mới trỏ cùng vào một vị trí bộ nhớ nhưng không chia hết cho 3:
+To find a new index that points at the same memory but is not divisible by 3:
 
+$$\text{New Index} = 114 + \frac{2^{32}}{4} = 114 + 1{,}073{,}741{,}824 = \mathbf{1{,}073{,}741{,}938}$$
 
-$$\text{New Index} = 114 + \frac{2^{32}}{4} = 114 + 1,073,741,824 = \mathbf{1,073,741,938}$$
+Verify:
 
-Kiểm tra logic:
-
-* $1,073,741,938 \pmod 3 = 1$ $\rightarrow$ **Thỏa mãn điều kiện, vượt qua bộ lọc!**
-* Khi nhân với 4 (kích thước `int`): $1,073,741,938 \times 4 = 4,294,967,752$.
-* Trong bộ nhớ 32-bit: $4,294,967,752 \equiv 456 \pmod{2^{32}}$.
-* Kết quả: Nó trỏ chính xác vào độ dời 456 bytes (Index 114) mà chúng ta cần.
-
----
-
-## 4. Chiến thuật Tấn công: Ret2Libc
-
-Do Stack đã bị xóa sạch biến môi trường, chúng ta sử dụng kỹ thuật **Ret2Libc** để mượn các hàm có sẵn trong thư viện C chuẩn.
-
-Chúng ta đã thiết lập một "chuỗi lệnh giả" trên Stack bắt đầu từ vị trí EIP (Index 114):
-
-1. **Index 114 (EIP):** Ghi địa chỉ hàm `system()`. Khi `main` kết thúc, CPU sẽ nhảy vào đây thay vì thoát chương trình.
-2. **Index 115 (Return Address):** Ghi địa chỉ hàm `exit()`. Sau khi `system` chạy xong, nó sẽ nhảy về đây để thoát "êm đẹp" mà không gây lỗi.
-3. **Index 116 (Argument 1):** Ghi địa chỉ của chuỗi `"/bin/sh"`. Đây là tham số mà hàm `system()` sẽ lấy để thực thi.
+* $1{,}073{,}741{,}938 \bmod 3 = 1$ → **passes the filter!**
+* Multiplied by 4 (`int` size): $1{,}073{,}741{,}938 \times 4 = 4{,}294{,}967{,}752$.
+* In 32-bit memory: $4{,}294{,}967{,}752 \equiv 456 \pmod{2^{32}}$.
+* Result: it points exactly at offset 456 bytes (index 114), which is what we
+  need.
 
 ---
 
-## 5. Kết quả thực thi cuối cùng
+## 4. Attack: Ret2Libc
 
-Bạn đã nhập trình tự các lệnh "vàng":
+Because the stack has been wiped of environment variables, we use **Ret2Libc** to
+borrow functions from the standard C library.
 
-1. `store` $\rightarrow$ `4159090384` $\rightarrow$ `1073741938` (Đưa `system` vào EIP).
-2. `store` $\rightarrow$ `4159040368` $\rightarrow$ `115` (Đưa `exit` vào sau EIP).
-3. `store` $\rightarrow$ `4160264172` $\rightarrow$ `116` (Đưa `"/bin/sh"` vào tham số).
-4. `quit` $\rightarrow$ Kích hoạt chuỗi nổ.
+We set up a "fake call chain" on the stack starting at EIP (index 114):
 
-**Kết quả:** Chương trình thực hiện `system("/bin/sh")` và trao cho bạn quyền kiểm soát Shell dưới danh nghĩa người dùng cấp cao hơn.
+1. **Index 114 (EIP):** Address of `system()`. When `main` returns, the CPU jumps
+   here instead of exiting.
+2. **Index 115 (return address):** Address of `exit()`. After `system` finishes it
+   returns here to exit cleanly without crashing.
+3. **Index 116 (argument 1):** Address of the `"/bin/sh"` string — the argument
+   `system()` receives.
 
 ---
 
-### Bài học rút ra:
+## 5. Final execution
 
-* **Đừng tin vào mã nguồn tĩnh:** Ghidra báo `0x1bc`, nhưng thực tế trên máy lại là `0x1c8`. Luôn luôn tin vào dữ liệu **Live Debugging** từ GDB.
-* **Toán học là vũ khí:** Integer Overflow không chỉ là một lỗi lập trình, nó là một chiếc chìa khóa vạn năng để mở những cánh cửa bị khóa.
-* **Ret2Libc:** Khi bạn không thể đưa mã độc (Shellcode) vào, hãy tìm cách điều khiển những gì đã có sẵn.
+Enter the "golden" sequence:
+
+1. `store` → `4159090384` → `1073741938` (put `system` into EIP).
+2. `store` → `4159040368` → `115` (put `exit` after EIP).
+3. `store` → `4160264172` → `116` (put `"/bin/sh"` into the argument slot).
+4. `quit` → detonate the chain.
+
+**Result:** The program runs `system("/bin/sh")` and hands you a shell as the
+higher-privileged user.
+
+---
+
+### Takeaways:
+
+* **Don't trust static code:** Ghidra reported `0x1bc`, but the real value on the
+  machine was `0x1c8`. Always trust **live debugging** data from GDB.
+* **Math is a weapon:** Integer overflow isn't just a bug — it's a master key for
+  opening locked doors.
+* **Ret2Libc:** When you can't inject shellcode, control what's already there.
 ----------------
 
-Tóm tắt "vở kịch" trong CPU:
-Màn 1 (main kết thúc): CPU gọi lệnh ret, thấy địa chỉ system ở Index 114ad (EIP). Nó nhảy đến đó.
+Summary of the "play" happening in the CPU:
 
-Màn 2 (Vào system): system bắt đầu chạy. Nó nhìn xuống Stack.
+Act 1 (`main` returns): The CPU runs `ret`, sees the `system` address at index 114
+(EIP). It jumps there.
 
-Màn 3 (Tìm tham số): Nó thấy ô ngay dưới nó là exit (nó nghĩ: "À, xong việc mình sẽ về đây"). Nó nhìn xuống ô tiếp theo nữa và thấy "/bin/sh" (nó nghĩ: "Ok, mình sẽ chạy cái này").
+Act 2 (enter `system`): `system` starts running and looks down the stack.
 
-Màn 4 (Khai hỏa): Shell /bin/sh được mở ra với quyền của level08.
+Act 3 (find arguments): It sees the slot right below it is `exit` (it thinks: "Ah,
+when I'm done I'll return here"). It looks one more slot down and sees `"/bin/sh"`
+(it thinks: "Ok, I'll run this").
 
-Logic ở đây là: Chúng ta không phá hủy chương trình, chúng ta chỉ tái cấu trúc lại Stack để đánh lừa CPU rằng nó đang thực hiện một lệnh gọi hàm hoàn toàn hợp lệ!
+Act 4 (fire): `/bin/sh` opens with `level08`'s privileges.
+
+The logic: we don't destroy the program — we just restructure the stack to fool
+the CPU into thinking it's performing a perfectly legitimate function call!

@@ -3,103 +3,121 @@ Partial RELRO 🟡     No canary found 🔴   NX disabled 🔴      No PIE 🔴 
 -----
 ---
 
-# 📒 NHẬT KÝ KHAI THÁC: LEVEL 04 @ OVERRIDE
+# 📒 EXPLOITATION LOG: LEVEL 04 @ OVERRIDE
 
-## 1. Phân tích "Giáp" (Security Protections)
+## 1. Analysing the "armor" (security protections)
 
-* **NX disabled 🔴**: Về lý thuyết, ta có thể chạy Shellcode trực tiếp trên Stack.
-* **No Canary 🔴**: Có thể ghi đè địa chỉ trả về (EIP) dễ dàng.
-* **ASLR**: Có khả năng được bật trên hệ thống, nhưng trong môi trường Lab này, địa chỉ của thư viện `libc` thường cố định.
-
----
-
-## 2. Phân tích Logic Code: "Ông bố nghiêm khắc" (The Sandbox)
-
-Chương trình này cực kỳ thú vị vì nó sử dụng hàm `fork()` để tạo ra hai tiến trình hoạt động song song:
-
-### A. Tiến trình Con (Child)
-
-* Chịu trách nhiệm giao tiếp với người dùng.
-* Sử dụng hàm **`gets(local_a0)`**: Đây là lỗ hổng chết người. `local_a0` chỉ rộng 128 bytes nhưng `gets` cho phép nhập không giới hạn $\rightarrow$ **Stack-based Buffer Overflow**.
-* Nó mời gọi: *"Give me some shellcode, k"*. Đây thực chất là một cái bẫy.
-
-### B. Tiến trình Cha (Parent)
-
-* Đóng vai trò là một "Giám sát viên" (Monitor) sử dụng lệnh `ptrace`.
-* Nó soi vào thanh ghi `ORIG_EAX` (vị trí `0x2c`) của con mỗi khi con định làm gì đó.
-* **Luật lệ:** Nếu con gọi **Syscall số 11 (0xb)** — tức là hàm `execve` — cha sẽ lập tức giết (`kill`) con và báo lỗi `"no exec() for you"`.
-
-> **Vấn đề:** 99% Shellcode truyền thống đều kết thúc bằng việc gọi `execve("/bin/sh")`. Vì vậy, dùng Shellcode bình thường ở bài này chắc chắn thất bại.
+* **NX disabled 🔴**: In theory we could run shellcode directly on the stack.
+* **No Canary 🔴**: We can overwrite the return address (EIP) easily.
+* **ASLR**: May be enabled on the host, but in this lab environment the `libc`
+  addresses are usually fixed.
 
 ---
 
-## 3. Chiến thuật: Kỹ thuật `ret2libc` (Return-to-libc)
+## 2. Code logic: the "strict father" (the sandbox)
 
-Để thắng "ông bố", chúng ta không dùng Shellcode tự chế. Thay vào đó, chúng ta ép "đứa con" nhảy vào một hàm có sẵn trong hệ thống: hàm **`system()`**.
+This program is interesting because it uses `fork()` to run two processes in
+parallel:
 
-### Tại sao `system()` lại thành công?
+### A. Child process
+* Handles communication with the user.
+* Uses **`gets(local_a0)`**: the fatal vulnerability. `local_a0` is only 128
+  bytes wide but `gets` reads unbounded input → **stack-based buffer overflow**.
+* It invites you: *"Give me some shellcode, k"*. This is actually a trap.
 
-Khi hàm `system("/bin/sh")` chạy, nó sẽ tự đẻ ra một "đứa cháu" (Grandchild). Đứa cháu này mới là đứa thực hiện lệnh `execve`. Vì "ông bố" chỉ giám sát "đứa con", nên "đứa cháu" hoàn toàn nằm ngoài vùng phủ sóng và có thể mở Shell thoải mái.
+### B. Parent process
+* Acts as a **monitor** using `ptrace`.
+* It inspects the child's `ORIG_EAX` register (at offset `0x2c`) whenever the
+  child tries to do anything.
+* **The rule:** If the child calls **syscall 11 (0xb)** — i.e. `execve` — the
+  parent immediately `kill`s the child and prints `"no exec() for you"`.
+
+> **Problem:** 99% of traditional shellcode ends with `execve("/bin/sh")`. So a
+> normal shellcode is guaranteed to fail here.
 
 ---
 
-## 4. Xây dựng Payload (The Anatomy of Payload)
+## 3. Strategy: `ret2libc` (Return-to-libc)
 
-Chúng ta cần dàn dựng Stack của tiến trình con sao cho khi nó kết thúc, nó nghĩ rằng nó đang thực hiện một hàm hợp lệ.
+To beat the "father" we don't use custom shellcode. Instead we force the "child"
+to jump into a function that already exists in the system: **`system()`**.
 
-### Cấu trúc Stack Frame giả lập:
+### Why does `system()` succeed?
 
-| Thành phần | Giá trị | Ý nghĩa |
+When `system("/bin/sh")` runs, it spawns a "grandchild" process. That grandchild
+is what performs the `execve`. Since the "father" only monitors the "child," the
+"grandchild" is completely off its radar and can open a shell freely.
+
+---
+
+## 4. The anatomy of the payload
+
+We arrange the child's stack so that when it returns, it thinks it is performing
+a legitimate function call.
+
+### Faked stack frame layout:
+
+| Component | Value | Meaning |
 | --- | --- | --- |
-| **Padding** | `A` * 156 | Lấp đầy từ biến `local_a0` đến EIP. |
-| **EIP (Target)** | `0xf7e6aed0` | Địa chỉ của hàm `system()`. |
-| **Return Address** | `JUNK` (4 bytes) | Nơi `system` nhảy về sau khi xong (ta không quan tâm). |
-| **Argument 1** | `0xf7f897ec` | Địa chỉ chuỗi `"/bin/sh"` (Tham số cho `system`). |
+| **Padding** | `A` * 156 | Fill from `local_a0` up to EIP. |
+| **EIP (target)** | `0xf7e6aed0` | Address of `system()`. |
+| **Return address** | `JUNK` (4 bytes) | Where `system` returns afterwards (we don't care). |
+| **Argument 1** | `0xf7f897ec` | Address of the `"/bin/sh"` string (argument to `system`). |
 
 ---
 
-## 5. Các bước tìm kiếm nguyên liệu (GDB)
+## 5. Finding the ingredients (GDB)
 
-1. **Tìm địa chỉ `system()**`: Dùng lệnh `print system` trong GDB.
-2. **Tìm chuỗi `"/bin/sh"**`: Dùng lệnh `find &system, +9999999, "/bin/sh"`. Chuỗi này luôn nằm sẵn trong thư viện `libc` của Linux.
-3. **Xác định Offset (156)**: 128 bytes của mảng + các biến cục bộ xung quanh nó (như `local_20`, `local_1c`...) + EBP cũ. Tổng cộng cần 156 bytes để chạm tới EIP.
+1. **Find `system()`:** `print system` in GDB.
+2. **Find `"/bin/sh"`:** `find &system, +9999999, "/bin/sh"`. This string always
+   lives in Linux's `libc`.
+3. **Determine the offset (156):** 128 bytes of the array + surrounding locals
+   (`local_20`, `local_1c`...) + the saved EBP. In total 156 bytes to reach EIP.
 
 ---
 
-## 6. Lệnh thực thi cuối cùng
+## 6. Final command
 
 ```bash
 (python -c 'print "A" * 156 + "\xd0\xae\xe6\xf7" + "JUNK" + "\xec\x97\xf8\xf7"'; cat) | ./level04
 
 ```
 
-* **`"A" * 156`**: Phá hủy cấu trúc Stack cũ.
-* **`\xd0\xae\xe6\xf7`**: Điều hướng CPU nhảy vào `system`.
-* **`\xec\x97\xf8\xf7`**: Đưa chuỗi `"/bin/sh"` làm mồi cho `system`.
-* **`cat`**: Giữ cho đường ống (pipe) không bị đóng, cho phép ta gõ lệnh vào Shell sau khi chiếm được.
+* **`"A" * 156`**: Destroys the old stack structure.
+* **`\xd0\xae\xe6\xf7`**: Redirects the CPU into `system`.
+* **`\xec\x97\xf8\xf7`**: Feeds `"/bin/sh"` as the argument to `system`.
+* **`cat`**: Keeps the pipe open so we can type commands into the shell once we
+  win it.
 
 ---
 
-## 7. Bài học rút ra
+## 7. Takeaways
 
-* **Cơ chế giám sát (Introspection)**: `ptrace` là một công cụ mạnh mẽ để bảo vệ chương trình, nhưng nếu chỉ giám sát bề nổi mà không giám sát đệ quy, nó vẫn có thể bị bypass.
-* **Sức mạnh của Thư viện**: Kỹ thuật `ret2libc` chứng minh rằng đôi khi "vũ khí" tốt nhất để tấn công một hệ thống chính là những công cụ nằm sẵn trong chính hệ thống đó.
-* **Lỗ hổng logic**: Việc hiểu rõ mối quan hệ Cha-Con-Cháu trong Linux là chìa khóa để tìm ra lỗ hổng trong cơ chế bảo vệ của tác giả.
+* **Introspection:** `ptrace` is a powerful protection, but if it only monitors
+  the surface (and not recursively), it can still be bypassed.
+* **The power of the library:** `ret2libc` shows that sometimes the best "weapon"
+  to attack a system is a tool already present inside that system.
+* **Logic bug:** Understanding the parent-child-grandchild relationship in Linux
+  is the key to finding the flaw in the author's protection scheme.
 
 
------- why +9999999999 -------
+------ why +9999999 -------
 
+`+9999999` is used as a hacky shortcut because:
 
-Người ta dùng `+9999999` như một lối tắt (hacky way) vì:
-
-1. **Kích thước của `libc`:** Thư viện `libc` thường có kích thước từ 1.5MB đến 2MB trong bộ nhớ.
-2. **Bao phủ toàn bộ:** Khi ta bắt đầu từ `&system` (một vị trí ở giữa `libc`) và bảo nó quét tới 10MB phía trước, ta đã **chắc chắn 100% bao phủ toàn bộ phần còn lại của thư viện `libc**`.
-3. **Tự động dừng an toàn:** GDB rất thông minh. Khi nó quét hết vùng nhớ hợp lệ của `libc` và đụng tới những vùng nhớ chưa được phân bổ (unmapped memory), nó sẽ tự động dừng lại và báo lỗi nhẹ:
-`warning: Unable to access target memory at 0xf7fd3b74, halting search.`
-(Giống hệt lỗi bạn đã thấy!). Mặc dù nó báo lỗi, nhưng nó **đã tìm thấy** chuỗi `"/bin/sh"` nằm trước ranh giới lỗi đó rồi.
+1. **Size of `libc`:** The `libc` library is typically 1.5MB–2MB in memory.
+2. **Full coverage:** Starting from `&system` (a point in the middle of `libc`)
+   and scanning ~10MB forward guarantees 100% coverage of the rest of `libc`.
+3. **Safe auto-stop:** GDB is smart. When it scans past the valid mapped region
+   of `libc` and hits unmapped memory, it stops and prints a mild warning:
+   `warning: Unable to access target memory at 0xf7fd3b74, halting search.`
+   Even though it warns, it has **already found** the `"/bin/sh"` string that sits
+   before that boundary.
 
 ---
 
-### Tóm lại:
+### In short:
 
-Thay vì phải tra cứu xem thư viện `libc` lớn bao nhiêu để ghi đúng con số, các hacker dùng một con số cực lớn (`+9999999` hoặc `+100000000`) để buộc GDB "quét hết sức có thể cho đến khi nào đụng tường thì thôi".
+Instead of looking up exactly how big `libc` is to write the precise number,
+attackers use a very large number (`+9999999` or `+100000000`) to make GDB "scan
+as far as it can until it hits a wall."

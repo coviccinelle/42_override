@@ -3,64 +3,78 @@ RELRO             STACK CANARY        NX                   PIE             RPATH
 Full RELRO 🟢     Canary found 🟢     NX disabled 🔴      No PIE 🔴       No RPATH 🟢   No RUNPATH 🟢   /home/users/level08/level08
 --------------
 
-**CWD (Current Working Directory) Manipulation** kết hợp với **Directory Mirroring**.
+**CWD (Current Working Directory) Manipulation** combined with **Directory Mirroring**.
 
 ---
 
-# 📒 NHẬT KÝ KHAI THÁC: LEVEL 08 @ OVERRIDE
+# 📒 EXPLOITATION LOG: LEVEL 08 @ OVERRIDE
 
-## 1. Phân tích mục tiêu & Đặc quyền
+## 1. Target & Privileges
 
 * **Binary:** `/home/users/level08/level08`
-* **Đặc quyền:** Có bit **SUID của `level09**`. Điều này nghĩa là binary có "thượng phương bảo kiếm", nó có thể đọc bất cứ file nào mà `level09` có quyền truy cập, bao gồm cả file mật khẩu `/home/users/level09/.pass`.
-* **Tính năng:** Chương trình đóng vai trò là một công cụ backup. Nó đọc file bạn yêu cầu và ghi bản sao vào đường dẫn: `./backups/[tên_file_của_bạn]`.
+* **Privilege:** It carries the **SUID bit of `level09`**. This means the binary
+  holds a "royal sword" — it can read any file `level09` can access, including the
+  password file `/home/users/level09/.pass`.
+* **Feature:** The program is a backup tool. It reads the file you request and
+  writes a copy to `./backups/[your_filename]`.
 
 ---
 
-## 2. Lỗ hổng: Đường dẫn tương đối (Relative Path)
+## 2. Vulnerability: Relative Path
 
-Binary sử dụng đường dẫn tương đối `./backups/` thay vì đường dẫn tuyệt đối (như `/var/log/backups/`).
+The binary uses the relative path `./backups/` instead of an absolute path (like
+`/var/log/backups/`).
 
-* **Logic khai thác:** Binary sẽ tìm thư mục `backups` ngay tại nơi bạn đang đứng (`.` đại diện cho thư mục hiện hành).
-* **Vấn đề tại thư mục nhà:** Tại `/home/users/level08`, thư mục `backups` thuộc quyền sở hữu của `level09` và bạn không có quyền tạo thêm thư mục con trong đó. Điều này ngăn cản chương trình tạo bản sao nếu file đầu vào có đường dẫn sâu (như `/home/users/...`).
+* **Exploit logic:** The binary looks for the `backups` directory wherever you
+  currently stand (`.` = current working directory).
+* **Problem in the home directory:** At `/home/users/level08`, the `backups`
+  directory is owned by `level09` and you can't create subdirectories in it. This
+  prevents the copy if the input file has a deep path (like `/home/users/...`).
 
 ---
 
-## 3. Chiến thuật: Gương soi thư mục (Directory Mirroring)
+## 3. Strategy: Directory Mirroring
 
-Vì chương trình không đủ thông minh để tự tạo các thư mục cha (nó chỉ dùng hàm `open()` với cờ `O_CREAT` cho file cuối cùng), bạn đã thực hiện chiến thuật "xây cầu trước khi đi".
+Because the program isn't smart enough to create parent directories (it only calls
+`open()` with `O_CREAT` for the final file), we "build the bridge before we cross
+it."
 
-### Bước 1: Thay đổi môi trường thực thi
+### Step 1: Change the execution environment
 
-Bạn di chuyển sang `/tmp`. Đây là "vùng đất tự do", nơi người dùng bình thường có quyền `rwx` (đọc, ghi, thực thi) để tạo bất cứ thứ gì mình muốn.
+Move to `/tmp`. This is the "free land" where a normal user has `rwx` (read,
+write, execute) permission to create anything.
 
-### Bước 2: Xây dựng cấu trúc "gương"
+### Step 2: Build the "mirror" structure
 
-Khi bạn đưa file `/home/users/level09/.pass` vào, binary sẽ cố gắng ghi vào:
+When you feed in `/home/users/level09/.pass`, the binary tries to write to:
 `./backups/` + `home/users/level09/.pass`
 
-Bạn đã thủ công tạo ra toàn bộ cấu trúc này trong `/tmp`:
+Manually create that whole structure inside `/tmp`:
 
 1. `mkdir backups`
 2. `mkdir backups/home`
 3. `mkdir backups/home/users`
 4. `mkdir backups/home/users/level09`
 
-### Bước 3: Kích hoạt "Proxy"
+### Step 3: Trigger the "proxy"
 
-Khi bạn chạy binary: `/home/users/level08/level08 /home/users/level09/.pass`
+Run the binary: `/home/users/level08/level08 /home/users/level09/.pass`
 
-1. Binary dùng quyền SUID để đọc file mật khẩu thật.
-2. Nó nhìn thấy thư mục `./backups/home/users/level09/` đã tồn tại sẵn trong `/tmp`.
-3. Nó tạo file `.pass` bên trong đó và chép nội dung mật khẩu vào.
+1. The binary uses its SUID privilege to read the real password file.
+2. It finds the directory `./backups/home/users/level09/` already exists in `/tmp`.
+3. It creates `.pass` inside it and copies the password content in.
 
 ---
 
-## 4. Kết quả & Bài học
+## 4. Result & Takeaways
 
-* **Flag tìm thấy:** `fjAwpJNs2vvkFLRebEvAQ2hFZ4uQBWfHRsP62d8S`
-* **Lý do thành công:** Bạn đã kiểm soát được **ngữ cảnh thực thi** của chương trình. Bằng cách thay đổi thư mục làm việc, bạn đã hướng một tác vụ đặc quyền (ghi file) vào một vị trí do bạn toàn quyền kiểm soát.
+* **Flag found:** `fjAwpJNs2vvkFLRebEvAQ2hFZ4uQBWfHRsP62d8S`
+* **Why it worked:** You controlled the program's **execution context**. By
+  changing the working directory, you redirected a privileged action (file write)
+  to a location you fully control.
 
-> **Ghi chú bảo mật:** Đây là lý do tại sao các chương trình SUID an toàn luôn phải sử dụng **Đường dẫn tuyệt đối** (Absolute Paths) và hạn chế tối đa việc tin tưởng vào môi trường do người dùng thiết lập (như thư mục hiện hành hay biến môi trường).
+> **Security note:** This is why safe SUID programs must always use **absolute
+> paths** and minimize trust in the user-controlled environment (such as the
+> current directory or environment variables).
 
 ---

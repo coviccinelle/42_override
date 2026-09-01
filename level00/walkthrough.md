@@ -25,16 +25,20 @@ bool main(void)
   return local_14[0] != 0x149c;
 }
 
----------- Translate 0x149c to decimal => 5276 !!!
+---------- Convert 0x149c to decimal => 5276 !!!
 
-Tại sao Ghidra hiển thị local_14[4] mà scanf lại dùng &DAT_08048636?
-Nếu bạn click đúp vào DAT_08048636 trong Ghidra, bạn sẽ thấy nó là chuỗi định dạng "%d".
+Why does Ghidra show local_14[4] while scanf uses &DAT_08048636?
+If you double-click DAT_08048636 in Ghidra, you'll see it is the format string "%d".
 
-scanf("%d", local_14) nghĩa là nó đọc một số nguyên và lưu vào phần tử đầu tiên của mảng.
+scanf("%d", local_14) reads a single integer and stores it into the first
+element of the array.
 
-Lệnh if (local_14[0] != 0x149c) kiểm tra chính xác số nguyên đó.
+The check `if (local_14[0] != 0x149c)` compares exactly that integer.
 
-Lưu ý nhỏ: Ở các level sau, khi No canary found đi kèm với một hàm gets() hoặc scanf("%s") (không giới hạn độ dài), đó mới là lúc bạn dùng đến kỹ thuật ghi đè địa chỉ trả về (EIP/RIP). Còn ở Level00, tác giả chỉ muốn bạn học cách đọc hiểu mã giả và chuyển đổi cơ số thôi!
+Note for later levels: when "No canary found" is paired with an unbounded input
+function such as gets() or scanf("%s"), that's when you reach for return-address
+overwrite techniques (EIP/RIP). In Level00 the author only wants you to practice
+reading decompiled code and converting number bases!
 
 ---------- answer ----
 

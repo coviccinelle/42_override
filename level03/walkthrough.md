@@ -3,77 +3,85 @@ Partial RELRO 🟡    Canary found 🟢     NX enabled 🟢    No PIE 🔴      
 -----
 ---
 
-# 📒 NHẬT KÝ KHAI THÁC: LEVEL 03 @ OVERRIDE
+# 📒 EXPLOITATION LOG: LEVEL 03 @ OVERRIDE
 
-## 1. Phân tích tĩnh (Static Analysis)
+## 1. Static Analysis
 
-Khác với các bài trước, `level03` có các lớp bảo vệ khá đầy đủ (**Canary found**, **NX enabled**), báo hiệu rằng chúng ta không thể dùng các chiêu thức tràn bộ đệm (Buffer Overflow) thông thường.
+Unlike the earlier levels, `level03` has a fairly complete set of protections
+(**Canary found**, **NX enabled**), signalling that ordinary buffer-overflow
+tricks won't work here.
 
-### Lỗ hổng nằm ở Logic:
+### The vulnerability is in the logic:
 
-Khi dịch ngược bằng Ghidra, chúng ta thấy chuỗi logic sau:
+Decompiling in Ghidra reveals this chain:
 
-1. **Hàm `main**`: Nhận mật khẩu từ người dùng và gọi hàm `test(param_1, param_2)`.
-2. **Hàm `test**`: Tính toán giá trị hiệu số: `ctx = param_2 - param_1`.
-3. **Hàm `decrypt(ctx)**`: Dùng giá trị `ctx` này để giải mã một mảng dữ liệu bí mật.
+1. **`main`:** Reads a password from the user and calls `test(param_1, param_2)`.
+2. **`test`:** Computes a difference: `ctx = param_2 - param_1`.
+3. **`decrypt(ctx)`:** Uses `ctx` to decrypt a secret data array.
 
 ---
 
-## 2. Giải mã toán học (Reverse Engineering the Logic)
+## 2. Reverse Engineering the Logic
 
-Trong hàm `decrypt`, chương trình thực hiện phép toán **XOR** trên một mảng Hex tĩnh để tạo ra chuỗi kiểm tra.
+Inside `decrypt`, the program **XOR**s a static hex array with `ctx` to produce a
+check string.
 
-### Phép toán XOR bí mật:
+### The secret XOR:
 
-Chương trình lấy mảng `local_21` (bắt đầu bằng `0x51`) XOR với biến `ctx`. Nếu kết quả là chuỗi `"Congratulations!"`, bạn thắng.
+The program takes the array `local_21` (which starts with `0x51`) and XORs it
+with `ctx`. If the result equals `"Congratulations!"`, you win.
 
-* **Dữ liệu gốc:** `0x51` (ký tự đầu tiên của mảng bí mật).
-* **Mục tiêu:** Chữ `'C'` (ký tự đầu tiên của "Congratulations!").
-* **Công thức:** $0x51 \oplus \text{ctx} = \text{'C'}$
+* **Source byte:** `0x51` (the first byte of the secret array).
+* **Target:** `'C'` (the first character of "Congratulations!").
+* **Equation:** $0x51 \oplus \text{ctx} = \text{'C'}$
 
-Áp dụng tính chất của XOR: Nếu $A \oplus B = C$ thì $A \oplus C = B$.
+Using the XOR property: if $A \oplus B = C$ then $A \oplus C = B$.
 
-* $0x51$ (Thập phân: $81$)
+* $0x51$ (decimal: $81$)
 * $'C'$ (ASCII: $67$)
-* $81 \oplus 67 = \mathbf{18}$ (Đây là con số "Ma thuật" ta cần tìm).
+* $81 \oplus 67 = \mathbf{18}$ (this is the "magic" number we need).
 
 ---
 
-## 3. Khám phá thực tế bằng GDB (Dynamic Analysis)
+## 3. Dynamic Analysis with GDB
 
-Tại sao nhập `18` vào chương trình lại không được? Đó là vì Ghidra đã hiển thị thiếu thông tin về cách hàm `test` nhận tham số.
+Why doesn't entering `18` directly work? Because Ghidra didn't fully show how
+`test` receives its arguments.
 
-### Bước ngoặt từ GDB:
+### The GDB turning point:
 
-Khi sử dụng lệnh `x/2wd $ebp+8` trong GDB, chúng ta phát hiện ra cấu trúc thực sự của Stack khi hàm `test` chạy:
+Running `x/2wd $ebp+8` in GDB reveals the real stack layout while `test` executes:
 
-* **`param_1`**: Giá trị bạn nhập vào (Ví dụ: `1234`).
-* **`param_2`**: Một con số cố định được chương trình tự nạp vào Stack là `322424845`.
+* **`param_1`:** The value you entered (e.g. `1234`).
+* **`param_2`:** A fixed constant the program loads onto the stack: `322424845`.
 
-### Công thức cuối cùng:
+### The final formula:
 
-Để hàm `decrypt` nhận được giá trị `18`, ta cần thỏa mãn phương trình:
-
+For `decrypt` to receive `18`, we must satisfy:
 
 $$\text{param\_2} - \text{param\_1} = 18$$
 
-$$\mathbf{322424845} - \text{Mật khẩu} = 18$$
+$$\mathbf{322424845} - \text{password} = 18$$
 
-$$\Rightarrow \text{Mật khẩu} = 322424845 - 18 = \mathbf{322424827}$$
-
----
-
-## 4. Các bước giải quyết (Step-by-Step)
-
-1. **Tính toán giá trị đích:** Lấy ký tự đầu mảng XOR với chữ 'C' để ra số `18`.
-2. **Sử dụng GDB:** Đặt `break test`, chạy chương trình và dùng `x/2wd $ebp+8` để tìm "con số bí mật" đang nằm trên Stack (`322424845`).
-3. **Tính toán bù trừ:** Lấy số bí mật trừ đi 18 để ra mật khẩu cần nhập.
-4. **Thực thi:** Nhập mật khẩu đã tính toán để lấy Shell.
+$$\Rightarrow \text{password} = 322424845 - 18 = \mathbf{322424827}$$
 
 ---
 
-## 5. Bài học rút ra
+## 4. Step-by-Step
 
-* **Đừng tin hoàn toàn vào Decompiler:** Ghidra rất mạnh nhưng đôi khi nó không hiển thị đúng các tham số được đẩy lên Stack một cách thủ công. GDB luôn là "trọng tài" chính xác nhất.
-* **XOR là phép toán đảo ngược:** Chỉ cần biết kết quả mong muốn và dữ liệu gốc, bạn luôn tìm được "khóa" (Key) bằng cách XOR chúng với nhau.
-* **Giá trị rác trên Stack:** Đôi khi các bài Lab lợi dụng việc "nhặt" lại dữ liệu cũ trên Stack để làm tham số ẩn, buộc người chơi phải dùng Debugger để soi.
+1. **Compute the target value:** XOR the array's first byte with `'C'` to get `18`.
+2. **Use GDB:** Set `break test`, run, and use `x/2wd $ebp+8` to find the secret
+   constant sitting on the stack (`322424845`).
+3. **Subtract:** Take the secret constant minus 18 to get the password to enter.
+4. **Execute:** Enter the computed password to get a shell.
+
+---
+
+## 5. Takeaways
+
+* **Don't fully trust the decompiler:** Ghidra is powerful but sometimes doesn't
+  show arguments pushed onto the stack manually. GDB is always the ground truth.
+* **XOR is reversible:** Knowing the desired result and the source data, you can
+  always recover the key by XORing them together.
+* **Stack "garbage" as hidden input:** Labs sometimes reuse leftover stack data as
+  a hidden argument, forcing the player to use a debugger to see it.

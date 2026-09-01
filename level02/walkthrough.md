@@ -3,60 +3,63 @@ No RELRO 🔴    No canary found 🔴   NX disabled 🔴    No PIE 🔴       No
 
 ---
 
-# 📒 NHẬT KÝ KHAI THÁC: LEVEL 02 @ OVERRIDE
+# 📒 EXPLOITATION LOG: LEVEL 02 @ OVERRIDE
 
-## 1. Dấu hiệu nhận biết & Lỗ hổng
+## 1. Signature & Vulnerability
 
-* **Mục tiêu:** Lấy mật khẩu của `level03` đang được nạp vào bộ nhớ.
-* **Lỗ hổng:** **Format String Vulnerability** tại dòng: `printf(&var_78);`.
-* **Nguyên nhân:** Lập trình viên truyền trực tiếp biến `var_78` (Username) vào `printf` mà không có định dạng `%s`. Điều này cho phép người dùng nhập các ký tự điều khiển (`%p`, `%x`, `%s`) để đọc/ghi bộ nhớ Stack.
-
----
-
-## 2. Kiến thức nền tảng: Biến cục bộ & Stack
-
-Để hiểu tại sao mật khẩu lại nằm đó, ta cần hiểu cấu trúc **Stack**.
-
-* **Biến cục bộ (Local Variables):** Khi hàm `main` được gọi, nó chiếm một vùng nhớ trên Stack (gọi là **Stack Frame**). Tất cả các biến khai báo trong hàm như `var_78` (Username), `buf` (Password nhập vào), và `buf_1` (Mật khẩu thật từ file) đều là biến cục bộ.
-* **Cấu trúc xếp tầng:** Các biến này được đặt nằm cạnh nhau trong "nhà kho" Stack.
-* **Cơ chế "Soi đèn":** Hàm `printf` khi thực thi sẽ tìm các tham số trên Stack. Bằng cách sử dụng `%p`, chúng ta giống như đang cầm đèn pin soi từ vị trí của `printf` đi qua các "chiếc hộp" biến cục bộ khác trên cùng một sàn nhà (Stack Frame).
+* **Goal:** Recover `level03`'s password, which is loaded into memory.
+* **Vulnerability:** **Format String** at the line `printf(&var_78);`.
+* **Root cause:** The developer passes the user-controlled `var_78` (username)
+  straight into `printf` without a `%s` format. This lets the user inject format
+  specifiers (`%p`, `%x`, `%s`) to read/write stack memory.
 
 ---
 
-## 3. Quá trình khai thác
+## 2. Background: local variables & the stack
 
-### Bước 1: Thăm dò (Initial Discovery)
+To understand why the password sits nearby, recall the **stack** layout.
 
-Dùng `%p.%p.%p...` để in Stack. Ta nhận thấy dữ liệu lạ (dạng văn bản ASCII) xuất hiện từ vị trí thứ **22**.
-
-* **Kỹ thuật:** Dùng `Direct Parameter Access` (`%22$p`) để nhảy thẳng tới vị trí đó.
-
-### Bước 2: Thất bại đầu tiên (The Fail)
-
-* **Dữ liệu thu được:** 4 cụm Hex từ `%22$p` đến `%25$p`.
-* **Giải mã:** Được 32 ký tự: `Hh74RPnuQ9sa5JAEXgNWCqz7sXGnh5J5`.
-* **Kết quả:** `Authentication failure`.
-* **Lý do thất bại:** Quan sát kỹ code thấy lệnh `fread(&buf_1, 1, 0x29, fp);`.
-* $0x29$ (Hex) = **41** (Decimal).
-* Ta mới lấy được 32 ký tự, nghĩa là còn thiếu tận 9 ký tự nữa!
-
-
-
-### Bước 3: Khắc phục & Thành công
-
-Ta mở rộng phạm vi soi đèn pin đến vị trí thứ **26** (`%26$p`).
-
-* **Cụm Hex thứ 5:** `0x48336750664b394d`.
-* **Giải mã Little Endian:** Đọc ngược từng byte từ phải sang trái:
-* `4d 39 4b 66 50 67 33 48` $\rightarrow$ `M9KfPg3H`.
-
-
+* **Local variables:** When `main` is called it gets a region of the stack (its
+  **stack frame**). Every variable declared in the function — `var_78`
+  (username), `buf` (the password we type), and `buf_1` (the real password read
+  from a file) — is a local variable.
+* **Stacked layout:** These variables sit next to each other in the stack "warehouse."
+* **The "flashlight" mechanism:** When `printf` runs it fetches its arguments
+  from the stack. Using `%p` is like shining a flashlight from `printf`'s
+  position across the neighboring local-variable "boxes" on the same stack frame.
 
 ---
 
-## 4. Tổng kết dữ liệu (The Payload)
+## 3. Exploitation
 
-| Vị trí | Giá trị Hex (Little Endian) | Chuỗi ASCII (Đã đảo ngược) |
+### Step 1: Initial discovery
+Print the stack with `%p.%p.%p...`. We notice unusual data (ASCII text) starting
+at position **22**.
+
+* **Technique:** Use **direct parameter access** (`%22$p`) to jump straight to
+  that position.
+
+### Step 2: The first failure
+* **Data recovered:** 4 hex chunks from `%22$p` to `%25$p`.
+* **Decoded:** 32 characters: `Hh74RPnuQ9sa5JAEXgNWCqz7sXGnh5J5`.
+* **Result:** `Authentication failure`.
+* **Why it failed:** Reading the code carefully reveals
+  `fread(&buf_1, 1, 0x29, fp);`.
+* `0x29` (hex) = **41** (decimal).
+* We only recovered 32 characters — 9 are still missing!
+
+### Step 3: Fix & success
+Extend the flashlight to position **26** (`%26$p`).
+
+* **5th hex chunk:** `0x48336750664b394d`.
+* **Little-endian decode:** Read the bytes right-to-left:
+* `4d 39 4b 66 50 67 33 48` → `M9KfPg3H`.
+
+---
+
+## 4. Assembling the payload
+
+| Position | Hex value (little-endian) | ASCII (reversed) |
 | --- | --- | --- |
 | `%22$p` | `0x756e505234376848` | `Hh74RPnu` |
 | `%23$p` | `0x45414a3561733951` | `Q9sa5JAE` |
@@ -64,18 +67,21 @@ Ta mở rộng phạm vi soi đèn pin đến vị trí thứ **26** (`%26$p`).
 | `%25$p` | `0x354a35686e475873` | `sXGnh5J5` |
 | `%26$p` | `0x48336750664b394d` | `M9KfPg3H` |
 
-**Mật khẩu hoàn chỉnh (40 ký tự):**
+**Complete password (40 characters):**
 
 > `Hh74RPnuQ9sa5JAEXgNWCqz7sXGnh5J5M9KfPg3H`
 
 ---
 
-## 5. Bài học rút ra
+## 5. Takeaways
 
-1. **Đừng bao giờ tin vào con số cảm tính:** Thấy 32 ký tự đẹp rồi nhưng vẫn phải đối chiếu với `fread` trong code để biết độ dài thực tế.
-2. **Little Endian là quy tắc sống còn:** Trong bộ nhớ x86_64, dữ liệu được lưu ngược. Nếu không đảo byte, mật khẩu sẽ sai hoàn toàn.
-3. **Lỗ hổng Format String cực kỳ quyền năng:** Không cần ghi đè (Overwrite), chỉ cần đọc (Read) cũng đủ để chiếm quyền điều khiển hoặc lấy thông tin nhạy cảm.
+1. **Never trust a "gut-feeling" number:** 32 characters looked complete, but you
+   must cross-check against the `fread` length in the code to know the real size.
+2. **Little Endian is a survival rule:** On x86-64, data is stored reversed. Skip
+   the byte swap and the password is completely wrong.
+3. **Format String is powerful:** No overwrite needed — a read alone is enough to
+   leak sensitive information or take control.
 
 ---
 
-**Flag của Level 03:** (Bạn hãy gõ `cat /home/users/level03/.pass` sau khi `su level03` để lấy nhé!)
+**Level 03 flag:** run `cat /home/users/level03/.pass` after `su level03`.

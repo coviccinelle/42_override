@@ -3,49 +3,50 @@ Partial RELRO 🟡     Canary found 🟢        NX enabled 🟢      No PIE 🔴
 
 --------------
 
-# 📒 NHẬT KÝ KHAI THÁC: LEVEL 06 @ OVERRIDE
+# 📒 EXPLOITATION LOG: LEVEL 06 @ OVERRIDE
 
-## 1. Dấu hiệu nhận biết & Rào cản
+## 1. Signature & Barriers
 
-* **Mục tiêu:** Vượt qua hàm `auth()` để kích hoạt `system("/bin/sh")`.
-* **Bảo mật:**
-* `Canary found`: Chống tràn bộ đệm ghi đè EIP.
-* `NX enabled`: Chống thực thi Shellcode trên Stack.
-* `ptrace(PTRACE_TRACEME)`: Cơ chế chống Debug (Anti-debugging). Nếu phát hiện đang bị GDB theo dõi, chương trình sẽ tự ngắt.
-
-
+* **Goal:** Pass the `auth()` function to trigger `system("/bin/sh")`.
+* **Security:**
+* `Canary found`: Blocks buffer-overflow EIP overwrites.
+* `NX enabled`: Blocks shellcode execution on the stack.
+* `ptrace(PTRACE_TRACEME)`: An anti-debugging mechanism. If it detects GDB
+  watching, the program aborts.
 
 ---
 
-## 2. Giải phẫu Logic thuật toán `auth()`
+## 2. Dissecting the `auth()` algorithm
 
-Thay vì tìm lỗi bộ nhớ, ta thực hiện **Reverse Engineering** để tìm ra quy luật sinh Serial từ Login. Thuật toán này là một hàm băm (Hash) có thể dự đoán được.
+Instead of hunting a memory bug, we **reverse engineer** the rule that generates
+the Serial from the Login. This is a predictable hash function.
 
-### Bước 1: Khởi tạo giá trị (The Seed)
+### Step 1: Seed initialisation
 
-Chương trình lấy ký tự thứ 4 (vị trí `index 3`) của Login để làm móng.
-
+The program takes the 4th character (`index 3`) of the Login as the foundation.
 
 $$local\_14 = (Login[3] \oplus 0x1337) + 0x5eeded$$
 
-### Bước 2: Vòng lặp nhào nặn (The Hashing Loop)
+### Step 2: The hashing loop
 
-Chương trình duyệt qua từng ký tự của Login (từ đầu đến cuối). Với mỗi ký tự, nó cập nhật giá trị Serial theo công thức:
+The program walks each character of the Login (start to end). For each character
+it updates the Serial with:
 
+$$Serial_{new} = Serial_{old} + (char[i] \oplus Serial_{old}) \bmod 1337$$
 
-$$Serial_{mới} = Serial_{cũ} + (Ký\_tự[i] \oplus Serial_{cũ}) \pmod{1337}$$
-
-> **Ghi chú:** `0x539` trong mã máy chính là `1337` trong hệ thập phân.
+> **Note:** `0x539` in the machine code is `1337` in decimal.
 
 ---
 
-## 3. Quá trình khai thác (The Keygen Strategy)
+## 3. Exploitation (the keygen strategy)
 
-Do có cơ chế chống GDB, việc ngồi soi thanh ghi để lấy kết quả rất khó khăn. Giải pháp tối ưu là viết một script **Keygen** để tự tính Serial.
+Because of the anti-GDB mechanism, reading registers directly is painful. The
+best approach is to write a **keygen** script that computes the Serial itself.
 
-### Script Python "Bất bại" (One-liner)
+### The "unbeatable" Python one-liner
 
-Để tránh lỗi thụt lề khi copy-paste, hãy dùng lệnh một dòng này. Bạn chỉ cần thay `viiiit` bằng Login bạn muốn:
+To avoid indentation errors when copy-pasting, use this one-liner. Just replace
+`viiiit` with the Login you want:
 
 ```bash
 python -c 'l="viiiit"; s=(ord(l[3])^0x1337)+0x5eeded; [exec("v=(ord(c)^s)%1337\ns+=v") for c in l]; print(f"Login: {l}\nSerial: {s}")'
@@ -54,29 +55,35 @@ python -c 'l="viiiit"; s=(ord(l[3])^0x1337)+0x5eeded; [exec("v=(ord(c)^s)%1337\n
 
 ---
 
-## 4. Bảng đối chiếu kết quả (Ví dụ)
+## 4. Result reference table (examples)
 
-| Login (Username) | Ký tự làm móng | Giá trị Seed | Serial cuối cùng |
+| Login (username) | Seed character | Seed value | Final Serial |
 | --- | --- | --- | --- |
 | `gemini` | `i` | `6226121` | `6232354` |
 | `viiiit` | `i` | `6226121` | `6232354` |
 | `admin1` | `i` | `6226121` | `6232408` |
 
-*(Lưu ý: "gemini" và "viiiit" có cùng ký tự thứ 4 là 'i' và cùng độ dài nên Serial có thể giống nhau).*
+*(Note: "gemini" and "viiiit" share the same 4th character 'i' and the same
+length, so their Serials can match.)*
 
 ---
 
-## 5. Các bước thực hiện thành công
+## 5. Steps to success
 
-1. **Chọn Login:** Chọn một chuỗi bất kỳ dài trên 6 ký tự (Ví dụ: `gemini`).
-2. **Tính Serial:** Chạy script Python để lấy con số tương ứng.
-3. **Vượt rào:** Chạy `./level06`, nhập Login đã chọn và dán số Serial vào.
-4. **Chiếm quyền:** Sau khi thấy chữ `Authenticated!`, gõ `whoami` để xác nhận và lấy flag ở `/home/users/level07/.pass`.
+1. **Choose a Login:** Any string longer than 6 characters (e.g. `gemini`).
+2. **Compute the Serial:** Run the Python script to get the matching number.
+3. **Pass the gate:** Run `./level06`, enter the chosen Login and paste the Serial.
+4. **Take control:** After `Authenticated!`, run `whoami` to confirm and grab the
+   flag at `/home/users/level07/.pass`.
 
 ---
 
-## 6. Bài học rút ra
+## 6. Takeaways
 
-* **Logic Flaw:** Khi thuật toán kiểm tra bản quyền nằm hoàn toàn ở phía Client (Local), hacker có thể dịch ngược và tự tạo ra chìa khóa.
-* **Anti-Debug Bypass:** Cơ chế `ptrace` bảo vệ chương trình khỏi GDB, nhưng không bảo vệ được chương trình khỏi việc bị đọc mã nguồn và mô phỏng lại thuật toán bằng ngôn ngữ khác (Python).
-* **Indentation Matters:** Trong Python, khoảng trắng không chỉ để cho đẹp, nó là cấu trúc lệnh. Khi dùng môi trường tương tác, hãy ưu tiên dùng lệnh một dòng (One-liner) để đảm bảo tính ổn định.
+* **Logic flaw:** When a license-check algorithm runs entirely client-side
+  (locally), an attacker can reverse it and forge the key.
+* **Anti-debug bypass:** `ptrace` protects the program from GDB, but not from
+  having its source read and its algorithm re-implemented in another language
+  (Python).
+* **Indentation matters:** In Python, whitespace is structure, not decoration. In
+  an interactive shell, prefer a one-liner for stability.
